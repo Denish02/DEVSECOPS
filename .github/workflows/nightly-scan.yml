@@ -17,49 +17,26 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.0
 
+      - name: Install Trivy
+        run: |
+          curl -sfL https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -y
+          sudo apt-get install -y trivy
+
       - name: Trivy full vulnerability scan (all severities, report only)
-        uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln,secret,misconfig
-          format: json
-          output: trivy-full-report.json
-          exit-code: 0
+        run: |
+          trivy fs . --scanners vuln,secret,misconfig --format json --output trivy-full-report.json --exit-code 0
 
       - name: Generate SBOM (CycloneDX)
-        uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          scan-type: fs
-          scan-ref: src
-          format: cyclonedx
-          output: sbom-cyclonedx.json
+        run: trivy fs src --format cyclonedx --output sbom-cyclonedx.json
 
       - name: Generate SBOM (SPDX)
-        uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          scan-type: fs
-          scan-ref: src
-          format: spdx-json
-          output: sbom-spdx.json
+        run: trivy fs src --format spdx-json --output sbom-spdx.json
 
       - name: License compliance scan
-        uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          scan-type: fs
-          scan-ref: src
-          scanners: license
-          format: table
-          output: license-report.txt
-          exit-code: 0
+        run: |
+          trivy fs src --scanners license --format table --output license-report.txt --exit-code 0
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

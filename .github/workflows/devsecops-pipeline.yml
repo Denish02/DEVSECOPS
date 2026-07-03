@@ -20,17 +20,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install Trivy
+        run: |
+          curl -sfL https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -y
+          sudo apt-get install -y trivy
+
       - name: Trivy secrets scan
-        uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: secret
-          format: sarif
-          output: trivy-secrets.sarif
-          exit-code: 0
+        run: trivy fs . --scanners secret --format sarif --output trivy-secrets.sarif --exit-code 0
 
       - name: Upload SARIF
         if: always()
@@ -40,14 +38,7 @@ jobs:
           category: trivy-secrets
 
       - name: Gate - block on any confirmed secret
-        uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: secret
-          exit-code: 1
+        run: trivy fs . --scanners secret --exit-code 1
 
   sast-scan:
     name: SAST (Semgrep)
@@ -89,19 +80,17 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.0
 
+      - name: Install Trivy
+        run: |
+          curl -sfL https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -y
+          sudo apt-get install -y trivy
+
       - name: Trivy dependency scan
-        uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          scan-type: fs
-          scan-ref: src
-          scanners: vuln
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          format: sarif
-          output: trivy-sca.sarif
-          exit-code: 0
+        run: |
+          trivy fs src --scanners vuln --severity CRITICAL,HIGH --ignore-unfixed \
+            --format sarif --output trivy-sca.sarif --exit-code 0
 
       - name: Upload SARIF
         if: always()
@@ -111,16 +100,7 @@ jobs:
           category: trivy-sca
 
       - name: Gate - block on CRITICAL CVE
-        uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          scan-type: fs
-          scan-ref: src
-          scanners: vuln
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: 1
+        run: trivy fs src --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1
 
   build:
     name: Docker Build
@@ -161,19 +141,17 @@ jobs:
       - name: Load image
         run: docker load -i cloudmart-app.tar
 
+      - name: Install Trivy
+        run: |
+          curl -sfL https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -y
+          sudo apt-get install -y trivy
+
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          scan-type: image
-          image-ref: cloudmart-app:${{ needs.build.outputs.image-tag }}
-          scanners: vuln,secret
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          format: sarif
-          output: trivy-image.sarif
-          exit-code: 0
+        run: |
+          trivy image cloudmart-app:${{ needs.build.outputs.image-tag }} --scanners vuln,secret \
+            --severity CRITICAL,HIGH --ignore-unfixed --format sarif --output trivy-image.sarif --exit-code 0
 
       - name: Upload SARIF
         if: always()
@@ -183,16 +161,9 @@ jobs:
           category: trivy-container
 
       - name: Gate - block on CRITICAL CVE
-        uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          scan-type: image
-          image-ref: cloudmart-app:${{ needs.build.outputs.image-tag }}
-          scanners: vuln
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: 1
+        run: |
+          trivy image cloudmart-app:${{ needs.build.outputs.image-tag }} --scanners vuln \
+            --severity CRITICAL --ignore-unfixed --exit-code 1
 
   iac-scan:
     name: IaC Scan (Trivy)
@@ -201,17 +172,17 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.0
 
+      - name: Install Trivy
+        run: |
+          curl -sfL https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -y
+          sudo apt-get install -y trivy
+
       - name: Trivy config scan
-        uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          scan-type: config
-          scan-ref: .
-          severity: CRITICAL,HIGH,MEDIUM
-          format: sarif
-          output: trivy-iac.sarif
-          exit-code: 0 # WARN only - never blocks
+        run: |
+          trivy config . --severity CRITICAL,HIGH,MEDIUM --format sarif --output trivy-iac.sarif --exit-code 0
+        # WARN only - never blocks
 
       - name: Upload SARIF
         if: always()

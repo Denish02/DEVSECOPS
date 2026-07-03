@@ -15,10 +15,10 @@ jobs:
     name: Trivy Full Scan + SBOM + License
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.0
 
       - name: Trivy full vulnerability scan (all severities, report only)
-        uses: aquasecurity/trivy-action@0.32.0
+        uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
         with:
           scan-type: fs
           scan-ref: .
@@ -28,7 +28,7 @@ jobs:
           exit-code: 0
 
       - name: Generate SBOM (CycloneDX)
-        uses: aquasecurity/trivy-action@0.32.0
+        uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
         with:
           scan-type: fs
           scan-ref: src
@@ -36,7 +36,7 @@ jobs:
           output: sbom-cyclonedx.json
 
       - name: Generate SBOM (SPDX)
-        uses: aquasecurity/trivy-action@0.32.0
+        uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
         with:
           scan-type: fs
           scan-ref: src
@@ -44,7 +44,7 @@ jobs:
           output: sbom-spdx.json
 
       - name: License compliance scan
-        uses: aquasecurity/trivy-action@0.32.0
+        uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
         with:
           scan-type: fs
           scan-ref: src
@@ -53,7 +53,7 @@ jobs:
           output: license-report.txt
           exit-code: 0
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: trivy-nightly-reports
           path: |
@@ -67,9 +67,9 @@ jobs:
     name: Semgrep Full Codebase Scan
     runs-on: ubuntu-latest
     container:
-      image: semgrep/semgrep
+      image: semgrep/semgrep@sha256:06938c1f365d3f67b8cedd8bc117607ae64253f88a0e768e9da9408548927dd6 # latest as of 2026-07
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.0
 
       - name: Run full Semgrep scan
         run: |
@@ -78,7 +78,7 @@ jobs:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
         continue-on-error: true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: semgrep-nightly-report
           path: semgrep-full-report.json
@@ -89,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -108,12 +108,12 @@ jobs:
           done
 
       - name: ZAP full active scan
-        uses: zaproxy/action-full-scan@v0.10.0
+        uses: zaproxy/action-full-scan@d2a07475d467566c9a3e3c700f31f47724aa1060 # v0.10.0
         with:
           target: http://localhost:8080
           fail_action: warn
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: zap-active-report
@@ -131,7 +131,7 @@ jobs:
     needs: [trivy-full-scan, semgrep-full-scan, zap-active-scan]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
 
@@ -146,7 +146,7 @@ jobs:
             find artifacts -type f | sort
           } > compliance-summary.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: compliance-summary
           path: compliance-summary.txt

@@ -1,0 +1,8 @@
+src/vendor/
+*.sarif
+*.tar
+report_html.html
+report_json.json
+.terraform/
+*.tfstate
+*.tfstate.backup

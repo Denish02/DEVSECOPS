@@ -10,9 +10,10 @@ what just gets logged, who's responsible for what — lives in
 [`cloudmart-devsecops-technical-analysis.md`](./cloudmart-devsecops-technical-analysis.md).
 This README is the short version.
 
-> **Status:** this is the design/blueprint stage. The pipeline is documented but the actual
-> `.github/workflows/*.yml` files, `Dockerfile`, and infrastructure manifests it describes have
-> not been built yet.
+> **Status:** implemented and runnable. `.github/workflows/*.yml`, a minimal PHP sample app
+> (`src/`), `Dockerfile`, `k8s/`, and `terraform/` all exist in this repo — see
+> [How to run this](#how-to-run-this) below, or the full step-by-step guide in
+> [`HOW-TO-RUN.md`](./HOW-TO-RUN.md).
 
 ---
 
@@ -85,7 +86,7 @@ flowchart TD
 Full details, including the exception-request process for overriding a block, are in section 6 of
 the [technical analysis](./cloudmart-devsecops-technical-analysis.md#6-gate-decision-framework).
 
-## Where things live once built
+## Where things live
 
 ```
 .
@@ -96,9 +97,14 @@ the [technical analysis](./cloudmart-devsecops-technical-analysis.md#6-gate-deci
 │   │   └── nightly-scan.yml         # runs at 2am UTC daily — deep scans, SBOM, license check, compliance report
 │   └── zap/
 │       └── rules.tsv                # suppresses known ZAP false positives
-├── Dockerfile
-├── k8s/
-└── terraform/
+├── src/                             # minimal PHP sample app the pipeline builds, scans, and deploys
+│   ├── public/                      # index.php, about.php, healthz.php, openapi.json
+│   ├── app/Logger.php
+│   ├── composer.json
+│   ├── Dockerfile
+│   └── security-headers.conf
+├── k8s/deployment.yaml              # hardened example manifest — scanned by Trivy IaC, not deployed by the pipeline
+└── terraform/main.tf                # example AWS resources (ECR, S3, security group) — scanned by Trivy IaC, not applied by the pipeline
 ```
 
 ## Rollout plan (why it isn't "on" everywhere immediately)
@@ -111,14 +117,47 @@ the plan is phased:
 3. **Weeks 5–6:** turn on blocking for dependency/container CVEs and DAST HIGH findings, and require a named approver before production.
 4. **Ongoing:** tune false positives, add CloudMart-specific Semgrep rules, build a KPI dashboard.
 
-## Required setup (once the workflows exist)
+## How to run this
 
-Two GitHub secrets need to be configured under **Settings → Secrets and variables → Actions**:
+The implementation trades the original doc's "external staging URL" for something that runs
+**without any cloud account or paid infrastructure**: the staging image is pushed to
+[GitHub Container Registry](https://ghcr.io) (free, built into every repo) and the DAST workflow
+pulls it and runs it directly on the GitHub Actions runner with `docker run`, then points ZAP at
+`http://localhost:8080`. Same coverage, zero infrastructure cost — matching the "no additional
+infra" constraint from the design doc even more literally than originally planned.
 
-| Secret | Purpose |
-|---|---|
-| `SEMGREP_APP_TOKEN` | Optional — connects Semgrep scans to Semgrep Cloud |
-| `STAGING_URL` | The URL OWASP ZAP scans for DAST |
+### One-time setup
 
-And a **production environment** (Settings → Environments → `production`) needs at least one
-required reviewer (Security Lead or Release Manager) so no one can skip the manual approval gate.
+1. **Enable GitHub Actions** on this repo (Settings → Actions → General → allow all actions).
+2. **Allow GITHUB_TOKEN to publish packages**: Settings → Actions → General → Workflow
+   permissions → "Read and write permissions". This lets the pipeline push images to GHCR
+   without any extra secret.
+3. **Create two GitHub Environments** (Settings → Environments):
+   - `staging` — no protection rules needed.
+   - `production` — add at least one **required reviewer** (you, standing in for the Security
+     Lead / Release Manager) so the approval gate actually pauses for a human.
+4. *(Optional)* Add a `SEMGREP_APP_TOKEN` secret if you want Semgrep results to also appear in
+   Semgrep Cloud — the pipeline runs fine without it using the free OSS engine.
+
+### Triggering a run
+
+- **Open a PR or push to `main`/`develop`** → runs `devsecops-pipeline.yml`. On a PR, it stops
+  after the container/IaC scan (no staging deploy). On a push to `main`, it goes all the way
+  through staging deploy → DAST → your manual approval click → production.
+- **`dast-scan.yml`** fires automatically once `devsecops-pipeline.yml` finishes on `main`, or run
+  it manually from the Actions tab (`workflow_dispatch`).
+- **`nightly-scan.yml`** runs on its own at 02:00 UTC, or trigger it manually the same way to see
+  the SBOM/license/full-scan artefacts without waiting.
+
+Every run's findings land in the **Security tab** (SARIF) and as downloadable **Artifacts** on the
+workflow run page (ZAP HTML/JSON reports, SBOMs, compliance summary).
+
+### Trying it locally first
+
+```bash
+docker build -t cloudmart-app:local ./src
+docker run -d -p 8080:80 --name cloudmart-local cloudmart-app:local
+curl http://localhost:8080/healthz.php
+# open http://localhost:8080/index.php in a browser
+docker stop cloudmart-local
+```

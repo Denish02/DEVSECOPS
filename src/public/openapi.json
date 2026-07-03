@@ -1,0 +1,43 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "CloudMart Sample App",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/index.php": {
+      "get": {
+        "summary": "Home page",
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "summary": "Submit greeting form",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "maxLength": 80 }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/about.php": {
+      "get": {
+        "summary": "About page",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/healthz.php": {
+      "get": {
+        "summary": "Health check",
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  }
+}

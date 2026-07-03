@@ -1,0 +1,131 @@
+name: DAST Scan
+
+on:
+  workflow_run:
+    workflows: ["DevSecOps Pipeline"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  packages: read
+
+jobs:
+  zap-baseline-scan:
+    name: ZAP Baseline Scan
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      target: ${{ steps.run-app.outputs.target }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: run-app
+        name: Run staging container
+        run: |
+          STAGING_IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):staging"
+          docker pull "$STAGING_IMAGE"
+          docker run -d --name cloudmart-staging -p 8080:80 "$STAGING_IMAGE"
+          for i in $(seq 1 20); do
+            if curl -sf http://localhost:8080/healthz.php > /dev/null; then
+              echo "App is up"; break
+            fi
+            sleep 2
+          done
+          echo "target=http://localhost:8080" >> "$GITHUB_OUTPUT"
+
+      - name: ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: http://localhost:8080
+          rules_file_name: .github/zap/rules.tsv
+          cmd_options: '-a'
+          fail_action: warn
+
+      - name: Upload ZAP report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-baseline-report
+          path: |
+            report_html.html
+            report_json.json
+          retention-days: 90
+
+      - name: Gate - block on HIGH finding
+        if: always()
+        run: |
+          if [ ! -f report_json.json ]; then
+            echo "No ZAP report found, skipping gate"
+            exit 0
+          fi
+          HIGH=$(python3 -c "
+          import json
+          with open('report_json.json') as f:
+              data = json.load(f)
+          alerts = [a for s in data.get('site', []) for a in s.get('alerts', [])]
+          print(sum(1 for a in alerts if a.get('riskcode') == '3'))
+          ")
+          echo "HIGH findings: $HIGH"
+          if [ "$HIGH" -gt "0" ]; then
+            echo "GATE: BLOCKED - $HIGH HIGH finding(s)"
+            exit 1
+          fi
+
+      - name: Stop staging container
+        if: always()
+        run: docker stop cloudmart-staging || true
+
+  zap-api-scan:
+    name: ZAP API Scan
+    needs: zap-baseline-scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run staging container
+        run: |
+          STAGING_IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):staging"
+          docker pull "$STAGING_IMAGE"
+          docker run -d --name cloudmart-staging -p 8080:80 "$STAGING_IMAGE"
+          for i in $(seq 1 20); do
+            if curl -sf http://localhost:8080/healthz.php > /dev/null; then
+              echo "App is up"; break
+            fi
+            sleep 2
+          done
+
+      - name: ZAP API scan
+        uses: zaproxy/action-api-scan@v0.7.0
+        with:
+          target: http://localhost:8080/openapi.json
+          format: openapi
+          fail_action: warn
+
+      - name: Upload ZAP API report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-api-report
+          path: |
+            report_html.html
+            report_json.json
+          retention-days: 90
+
+      - name: Stop staging container
+        if: always()
+        run: docker stop cloudmart-staging || true

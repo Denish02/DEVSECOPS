@@ -19,6 +19,8 @@ jobs:
 
       - name: Trivy full vulnerability scan (all severities, report only)
         uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           scan-type: fs
           scan-ref: .
@@ -29,6 +31,8 @@ jobs:
 
       - name: Generate SBOM (CycloneDX)
         uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           scan-type: fs
           scan-ref: src
@@ -37,6 +41,8 @@ jobs:
 
       - name: Generate SBOM (SPDX)
         uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           scan-type: fs
           scan-ref: src
@@ -45,6 +51,8 @@ jobs:
 
       - name: License compliance scan
         uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           scan-type: fs
           scan-ref: src

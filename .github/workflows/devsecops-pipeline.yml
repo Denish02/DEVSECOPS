@@ -22,6 +22,8 @@ jobs:
 
       - name: Trivy secrets scan
         uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           scan-type: fs
           scan-ref: .
@@ -39,6 +41,8 @@ jobs:
 
       - name: Gate - block on any confirmed secret
         uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           scan-type: fs
           scan-ref: .
@@ -87,6 +91,8 @@ jobs:
 
       - name: Trivy dependency scan
         uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           scan-type: fs
           scan-ref: src
@@ -106,6 +112,8 @@ jobs:
 
       - name: Gate - block on CRITICAL CVE
         uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           scan-type: fs
           scan-ref: src
@@ -155,6 +163,8 @@ jobs:
 
       - name: Trivy image scan
         uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           scan-type: image
           image-ref: cloudmart-app:${{ needs.build.outputs.image-tag }}
@@ -174,6 +184,8 @@ jobs:
 
       - name: Gate - block on CRITICAL CVE
         uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           scan-type: image
           image-ref: cloudmart-app:${{ needs.build.outputs.image-tag }}
@@ -191,6 +203,8 @@ jobs:
 
       - name: Trivy config scan
         uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4 # v0.32.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           scan-type: config
           scan-ref: .

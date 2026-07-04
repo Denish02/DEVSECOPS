@@ -35,7 +35,7 @@ jobs:
         run: |
           STAGING_IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):staging"
           docker pull "$STAGING_IMAGE"
-          docker run -d --name cloudmart-staging -p 8080:80 "$STAGING_IMAGE"
+          docker run -d --name cloudmart-staging -p 8080:8080 "$STAGING_IMAGE"
           for i in $(seq 1 20); do
             if curl -sf http://localhost:8080/healthz > /dev/null; then
               echo "App is up"; break
@@ -102,7 +102,7 @@ jobs:
         run: |
           STAGING_IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):staging"
           docker pull "$STAGING_IMAGE"
-          docker run -d --name cloudmart-staging -p 8080:80 "$STAGING_IMAGE"
+          docker run -d --name cloudmart-staging -p 8080:8080 "$STAGING_IMAGE"
           for i in $(seq 1 20); do
             if curl -sf http://localhost:8080/healthz > /dev/null; then
               echo "App is up"; break

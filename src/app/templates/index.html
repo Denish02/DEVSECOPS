@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CloudMart</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+    <h1>CloudMart Sample App</h1>
+    <p>This is a minimal application used to demonstrate the CloudMart DevSecOps pipeline.</p>
+
+    <form method="post" action="/">
+        <label for="name">Your name:</label>
+        <input type="text" id="name" name="name" maxlength="80">
+        <button type="submit">Greet me</button>
+    </form>
+
+    {% if name %}
+        <p>Hello, {{ name }}!</p>
+    {% endif %}
+
+    <p><a href="/about">About</a></p>
+</body>
+</html>

@@ -10,6 +10,7 @@ on:
 permissions:
   contents: read
   security-events: write
+  actions: read
   packages: read
 
 jobs:
@@ -20,10 +21,10 @@ jobs:
     outputs:
       target: ${{ steps.run-app.outputs.target }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Log in to GHCR
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.6.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -34,9 +35,9 @@ jobs:
         run: |
           STAGING_IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):staging"
           docker pull "$STAGING_IMAGE"
-          docker run -d --name cloudmart-staging -p 8080:80 "$STAGING_IMAGE"
+          docker run -d --name cloudmart-staging -p 8080:8080 "$STAGING_IMAGE"
           for i in $(seq 1 20); do
-            if curl -sf http://localhost:8080/healthz.php > /dev/null; then
+            if curl -sf http://localhost:8080/healthz > /dev/null; then
               echo "App is up"; break
             fi
             sleep 2
@@ -44,7 +45,7 @@ jobs:
           echo "target=http://localhost:8080" >> "$GITHUB_OUTPUT"
 
       - name: ZAP baseline scan
-        uses: zaproxy/action-baseline@66042c8e7e24680119199a017e5b0e8603bf4dae # v0.12.0
+        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
         with:
           target: http://localhost:8080
           rules_file_name: .github/zap/rules.tsv
@@ -53,7 +54,7 @@ jobs:
 
       - name: Upload ZAP report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: zap-baseline-report
           path: |
@@ -91,7 +92,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Log in to GHCR
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.6.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -101,16 +102,16 @@ jobs:
         run: |
           STAGING_IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):staging"
           docker pull "$STAGING_IMAGE"
-          docker run -d --name cloudmart-staging -p 8080:80 "$STAGING_IMAGE"
+          docker run -d --name cloudmart-staging -p 8080:8080 "$STAGING_IMAGE"
           for i in $(seq 1 20); do
-            if curl -sf http://localhost:8080/healthz.php > /dev/null; then
+            if curl -sf http://localhost:8080/healthz > /dev/null; then
               echo "App is up"; break
             fi
             sleep 2
           done
 
       - name: ZAP API scan
-        uses: zaproxy/action-api-scan@f34b07497d46a84e06d71ad4f304311634c24137 # v0.7.0
+        uses: zaproxy/action-api-scan@5158fe4d9d8fcc75ea204db81317cce7f9e5453d # v0.10.0
         with:
           target: http://localhost:8080/openapi.json
           format: openapi
@@ -118,7 +119,7 @@ jobs:
 
       - name: Upload ZAP API report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: zap-api-report
           path: |

@@ -5,7 +5,7 @@
     "version": "1.0.0"
   },
   "paths": {
-    "/index.php": {
+    "/": {
       "get": {
         "summary": "Home page",
         "responses": { "200": { "description": "OK" } }
@@ -27,13 +27,13 @@
         "responses": { "200": { "description": "OK" } }
       }
     },
-    "/about.php": {
+    "/about": {
       "get": {
         "summary": "About page",
         "responses": { "200": { "description": "OK" } }
       }
     },
-    "/healthz.php": {
+    "/healthz": {
       "get": {
         "summary": "Health check",
         "responses": { "200": { "description": "OK" } }

@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
   security-events: write
+  actions: read
   packages: read
 
 jobs:
@@ -15,7 +16,7 @@ jobs:
     name: Trivy Full Scan + SBOM + License
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install Trivy
         run: |
@@ -38,7 +39,7 @@ jobs:
         run: |
           trivy fs src --scanners license --format table --output license-report.txt --exit-code 0
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: trivy-nightly-reports
           path: |
@@ -54,7 +55,7 @@ jobs:
     container:
       image: semgrep/semgrep@sha256:06938c1f365d3f67b8cedd8bc117607ae64253f88a0e768e9da9408548927dd6 # latest as of 2026-07
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Run full Semgrep scan
         run: |
@@ -63,7 +64,7 @@ jobs:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
         continue-on-error: true
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: semgrep-nightly-report
           path: semgrep-full-report.json
@@ -74,7 +75,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Log in to GHCR
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.6.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -84,21 +85,21 @@ jobs:
         run: |
           STAGING_IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):staging"
           docker pull "$STAGING_IMAGE" || echo "No staging image yet, skipping"
-          docker run -d --name cloudmart-staging -p 8080:80 "$STAGING_IMAGE" || true
+          docker run -d --name cloudmart-staging -p 8080:8080 "$STAGING_IMAGE" || true
           for i in $(seq 1 20); do
-            if curl -sf http://localhost:8080/healthz.php > /dev/null; then
+            if curl -sf http://localhost:8080/healthz > /dev/null; then
               echo "App is up"; break
             fi
             sleep 2
           done
 
       - name: ZAP full active scan
-        uses: zaproxy/action-full-scan@d2a07475d467566c9a3e3c700f31f47724aa1060 # v0.10.0
+        uses: zaproxy/action-full-scan@3c58388149901b9a03b7718852c5ba889646c27c # v0.13.0
         with:
           target: http://localhost:8080
           fail_action: warn
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: zap-active-report
@@ -116,7 +117,7 @@ jobs:
     needs: [trivy-full-scan, semgrep-full-scan, zap-active-scan]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: artifacts
 
@@ -131,7 +132,7 @@ jobs:
             find artifacts -type f | sort
           } > compliance-summary.txt
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: compliance-summary
           path: compliance-summary.txt

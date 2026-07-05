@@ -86,8 +86,8 @@ jobs:
 
   dast-staging:
     name: DAST (OWASP ZAP)
-    needs: smoke-staging
-    if: needs.smoke-staging.result == 'success'
+    needs: [deploy-staging, smoke-staging]
+    if: needs.deploy-staging.result == 'success' && needs.smoke-staging.result == 'success'
     runs-on: ubuntu-latest
     environment: staging
     steps:

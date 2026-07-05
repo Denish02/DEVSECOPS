@@ -2,7 +2,7 @@ name: Nightly Deep Scan
 
 on:
   schedule:
-    # 2:00 AM Malaysia Time (UTC+8) = 18:00 UTC the previous day
+    # 2:00 AM Malaysia Time (UTC+8) 
     - cron: '0 18 * * *'
   workflow_dispatch:
 
@@ -49,6 +49,7 @@ jobs:
             sbom-spdx.json
             license-report.txt
           retention-days: 90
+          overwrite: true
 
   semgrep-full-scan:
     name: Semgrep Full Codebase Scan
@@ -70,6 +71,7 @@ jobs:
           name: semgrep-nightly-report
           path: semgrep-full-report.json
           retention-days: 90
+          overwrite: true
 
   zap-active-scan:
     name: ZAP Full Active Scan
@@ -140,3 +142,4 @@ jobs:
           name: compliance-summary
           path: compliance-summary.txt
           retention-days: 365
+          overwrite: true

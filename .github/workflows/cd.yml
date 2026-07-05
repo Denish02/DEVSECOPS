@@ -129,6 +129,7 @@ jobs:
             report_html.html
             report_json.json
           retention-days: 90
+          overwrite: true
 
       - name: Gate - block on HIGH finding
         if: always()
@@ -167,6 +168,7 @@ jobs:
             report_html.html
             report_json.json
           retention-days: 90
+          overwrite: true
 
       - name: Stop staging container
         if: always()

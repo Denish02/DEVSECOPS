@@ -169,6 +169,7 @@ jobs:
           name: cloudmart-app-image
           path: cloudmart-app.tar
           retention-days: 1
+          overwrite: true
 
   container-scan:
     name: Container Scan (Trivy)

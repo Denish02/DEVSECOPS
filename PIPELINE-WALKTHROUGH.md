@@ -148,7 +148,7 @@ Only starts if `lint-test`, `secrets-scan`, `sast-scan`, and `sca-scan` all pass
 Runs in parallel with `container-scan`.
 
 1. Checks out; installs Trivy.
-2. `trivy config . --severity CRITICAL,HIGH,MEDIUM` over Dockerfile / k8s / terraform → SARIF,
+2. `trivy config . --severity CRITICAL,HIGH,MEDIUM` over the Dockerfile → SARIF,
    uploaded.
 
 **Gate:** ⚠️ **WARN only** — `--exit-code 0`, never blocks. Misconfigurations are configuration

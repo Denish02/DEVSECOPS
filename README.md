@@ -58,7 +58,7 @@ flowchart TD
     D --> E
     subgraph E [Stage 4: Image-level checks, run in parallel]
         E1[Container Scan — Trivy\nscans the built image layers]
-        E2[IaC Scan — Trivy\nchecks Dockerfile / k8s / terraform]
+        E2[IaC Scan — Trivy\nchecks Dockerfile]
     end
     E1 -- CRITICAL CVE --> BLOCK3[["🚫 BLOCKED\nfix base image or package"]]
     E2 -- misconfig found --> WARN1[["⚠️ WARN\nlogged to sprint backlog, 14-day SLA"]]

@@ -7,6 +7,3 @@ __pycache__/
 *.tar
 report_html.html
 report_json.json
-.terraform/
-*.tfstate
-*.tfstate.backup

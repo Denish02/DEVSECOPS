@@ -219,7 +219,7 @@ A Docker image is not simply application code. It includes a base OS layer, syst
     exit-code: 0        # WARN only — does not block
 ```
 
-Analyses Dockerfiles, Kubernetes manifests, and Terraform configurations against CIS benchmarks and NSA Kubernetes Hardening Guidelines. Common findings include containers running as root, privileged mode enabled, missing resource limits, and disabled network policies. Gate is set to WARN only — IaC misconfigurations represent configuration debt rather than an immediately exploitable condition. Findings are assigned a remediation SLA in the sprint backlog.
+Analyses the Dockerfile against CIS benchmarks and container hardening guidelines. Common findings include containers running as root, privileged mode enabled, and missing resource limits. Gate is set to WARN only — IaC misconfigurations represent configuration debt rather than an immediately exploitable condition. Findings are assigned a remediation SLA in the sprint backlog.
 
 **Nightly Additions**
 
@@ -718,10 +718,6 @@ GitHub Environment `production` must be configured with at least one required re
 │   ├── tests/test_app.py             # pytest unit tests
 │   ├── wsgi.py · requirements.txt · openapi.json
 │   └── Dockerfile                    # python:3.13-slim, gunicorn :8080 — scanned by Trivy IaC
-├── k8s/                              # Kubernetes manifests — scanned by Trivy IaC
-│   └── deployment.yaml
-└── terraform/                        # Terraform configs — scanned by Trivy IaC
-    └── main.tf
 ```
 
 ---

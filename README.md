@@ -10,10 +10,11 @@ what just gets logged, who's responsible for what — lives in
 [`cloudmart-devsecops-technical-analysis.md`](./cloudmart-devsecops-technical-analysis.md).
 This README is the short version.
 
-> **Status:** implemented and runnable. `.github/workflows/*.yml`, a minimal PHP sample app
-> (`src/`), `Dockerfile`, `k8s/`, and `terraform/` all exist in this repo — see
+> **Status:** implemented and runnable. `.github/workflows/*.yml`, a minimal Python **Flask** sample
+> app (`src/`, served by gunicorn on port 8080), and its `Dockerfile` all exist in this repo — see
 > [How to run this](#how-to-run-this) below, or the full step-by-step guide in
-> [`HOW-TO-RUN.md`](./HOW-TO-RUN.md).
+> [`HOW-TO-RUN.md`](./HOW-TO-RUN.md). For a job-by-job trace of the whole pipeline from push to
+> production, see [`PIPELINE-WALKTHROUGH.md`](./PIPELINE-WALKTHROUGH.md).
 
 ---
 
@@ -92,20 +93,23 @@ the [technical analysis](./cloudmart-devsecops-technical-analysis.md#6-gate-deci
 .
 ├── .github/
 │   ├── workflows/
-│   │   ├── devsecops-pipeline.yml   # runs on every PR / push — secrets, SAST, SCA, build, container/IaC scan, deploy to staging
-│   │   ├── dast-scan.yml            # runs after staging deploy — ZAP against the live app
+│   │   ├── ci.yml                   # every PR / push to main — lint+test, secrets, SAST, SCA, build, container/IaC scan
+│   │   ├── cd.yml                   # auto-runs after CI succeeds on main — deploy staging → smoke → ZAP DAST → approval → production
 │   │   └── nightly-scan.yml         # runs at 2am UTC daily — deep scans, SBOM, license check, compliance report
 │   └── zap/
 │       └── rules.tsv                # suppresses known ZAP false positives
-├── src/                             # minimal PHP sample app the pipeline builds, scans, and deploys
-│   ├── public/                      # index.php, about.php, healthz.php, openapi.json
-│   ├── app/Logger.php
-│   ├── composer.json
-│   ├── Dockerfile
-│   └── security-headers.conf
-├── k8s/deployment.yaml              # hardened example manifest — scanned by Trivy IaC, not deployed by the pipeline
-└── terraform/main.tf                # example AWS resources (ECR, S3, security group) — scanned by Trivy IaC, not applied by the pipeline
+└── src/                             # minimal Python Flask sample app the pipeline builds, scans, and deploys
+    ├── app/__init__.py              # Flask app factory — routes: / , /about , /healthz , /openapi.json
+    ├── app/templates/               # index.html, about.html
+    ├── tests/test_app.py            # pytest unit tests run in CI
+    ├── wsgi.py                      # gunicorn entrypoint
+    ├── openapi.json                 # API spec ZAP's API scan consumes
+    ├── requirements.txt
+    └── Dockerfile                   # python:3.13-slim, gunicorn on :8080, non-root user
 ```
+
+> **Note:** DAST (ZAP) now lives inside `cd.yml`, not a separate `dast-scan.yml` — it runs against
+> the freshly deployed staging container as part of the deploy chain.
 
 ## Rollout plan (why it isn't "on" everywhere immediately)
 
@@ -141,13 +145,13 @@ infra" constraint from the design doc even more literally than originally planne
 
 ### Triggering a run
 
-- **Open a PR or push to `main`/`develop`** → runs `devsecops-pipeline.yml`. On a PR, it stops
-  after the container/IaC scan (no staging deploy). On a push to `main`, it goes all the way
-  through staging deploy → DAST → your manual approval click → production.
-- **`dast-scan.yml`** fires automatically once `devsecops-pipeline.yml` finishes on `main`, or run
-  it manually from the Actions tab (`workflow_dispatch`).
-- **`nightly-scan.yml`** runs on its own at 02:00 UTC, or trigger it manually the same way to see
-  the SBOM/license/full-scan artefacts without waiting.
+- **Open a PR or push to `main`** → runs `ci.yml` (lint+test, secrets, SAST, SCA, build,
+  container/IaC scan). This is the fast feedback loop; it does not deploy.
+- **`cd.yml`** fires automatically once `ci.yml` **succeeds on `main`** (via `workflow_run`). It
+  goes staging deploy → smoke test → ZAP DAST → your manual approval click → production deploy →
+  production smoke test.
+- **`nightly-scan.yml`** runs on its own at 02:00 UTC, or trigger it manually from the Actions tab
+  (`workflow_dispatch`) to see the SBOM/license/full-scan artefacts without waiting.
 
 Every run's findings land in the **Security tab** (SARIF) and as downloadable **Artifacts** on the
 workflow run page (ZAP HTML/JSON reports, SBOMs, compliance summary).
@@ -156,8 +160,8 @@ workflow run page (ZAP HTML/JSON reports, SBOMs, compliance summary).
 
 ```bash
 docker build -t cloudmart-app:local ./src
-docker run -d -p 8080:80 --name cloudmart-local cloudmart-app:local
-curl http://localhost:8080/healthz.php
-# open http://localhost:8080/index.php in a browser
-docker stop cloudmart-local
+docker run -d -p 8080:8080 --name cloudmart-local cloudmart-app:local
+curl http://localhost:8080/healthz          # {"status":"ok"}
+# open http://localhost:8080/ in a browser
+docker stop cloudmart-local && docker rm cloudmart-local
 ```

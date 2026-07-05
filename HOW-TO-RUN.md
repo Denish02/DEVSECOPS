@@ -15,22 +15,22 @@ You need Docker Desktop (or any Docker engine) installed and running.
 # Build the image
 docker build -t cloudmart-app:local ./src
 
-# Run it
-docker run -d -p 8080:80 --name cloudmart-local cloudmart-app:local
+# Run it (gunicorn serves the Flask app on 8080 inside the container)
+docker run -d -p 8080:8080 --name cloudmart-local cloudmart-app:local
 
 # Confirm it's alive
-curl http://localhost:8080/healthz.php
+curl http://localhost:8080/healthz
 # {"status":"ok"}
 
 # Open in a browser
-#   http://localhost:8080/index.php
-#   http://localhost:8080/about.php
+#   http://localhost:8080/
+#   http://localhost:8080/about
 
 # Stop and remove when done
 docker stop cloudmart-local && docker rm cloudmart-local
 ```
 
-If `curl` returns nothing, wait a few seconds — Apache takes a moment to start — and try again.
+If `curl` returns nothing, wait a few seconds — gunicorn takes a moment to start — and try again.
 
 ### Try the scanners locally too (optional)
 
@@ -89,17 +89,21 @@ No `STAGING_URL` secret is needed — see [§4](#4-how-staging-actually-works-he
 
 | Workflow | Fires on | Or trigger manually |
 |---|---|---|
-| `devsecops-pipeline.yml` | Any PR to `main`/`develop`, or a push to `main`/`develop` | Actions tab → select workflow → "Run workflow" (only push/PR events apply the full job graph) |
-| `dast-scan.yml` | Automatically after `devsecops-pipeline.yml` finishes on `main` | Actions tab → "Run workflow" |
+| `ci.yml` | Any PR to `main`, or a push to `main` | Not exposed as `workflow_dispatch` — push/PR only |
+| `cd.yml` | Automatically after `ci.yml` **succeeds on `main`** (`workflow_run`) | — (driven by CI completion) |
 | `nightly-scan.yml` | Cron, 02:00 UTC daily | Actions tab → "Run workflow" |
+
+For a job-by-job trace of what each step does and what blocks it, see
+[`PIPELINE-WALKTHROUGH.md`](./PIPELINE-WALKTHROUGH.md).
 
 ### What actually happens on a PR vs. a push to `main`
 
-- **Opening a PR**: `secrets-scan` → `sast-scan`/`sca-scan` → `build` → `container-scan`/`iac-scan`.
-  Stops there — no staging deploy, no production deploy, no DAST. This is your fast feedback loop.
-- **Pushing to `main`** (e.g. merging that PR): the same jobs run, then continue to
-  `deploy-staging` → `dast-scan.yml` fires automatically → once you manually approve the
-  `production` environment in the Actions UI → `deploy-production`.
+- **Opening a PR**: `ci.yml` runs `lint-test` + `secrets-scan` + `sast-scan` + `sca-scan` in
+  parallel → `build` → `container-scan`/`iac-scan`. Stops there — no deploy, no DAST. This is your
+  fast feedback loop.
+- **Pushing to `main`** (e.g. merging that PR): the same CI jobs run, and on success `cd.yml` fires
+  automatically: `deploy-staging` → `smoke-staging` → `dast-staging` (ZAP) → `approval-gate` (you
+  click Approve on the `production` environment) → `deploy-production` → `smoke-production`.
 
 ### Where to see results
 
@@ -114,12 +118,12 @@ No `STAGING_URL` secret is needed — see [§4](#4-how-staging-actually-works-he
 The design doc originally assumed a real cloud staging environment reachable at a `STAGING_URL`.
 This repo simplifies that so the whole pipeline runs on GitHub's free tier with no cloud account:
 
-1. `deploy-staging` pushes the built image to `ghcr.io/<your-repo>:staging`.
-2. `dast-scan.yml` pulls that image and runs it directly on the GitHub Actions runner
-   (`docker run -d -p 8080:80 ...`), then points ZAP at `http://localhost:8080`.
+1. `deploy-staging` (in `cd.yml`) pushes the built image to `ghcr.io/<your-repo>:staging`.
+2. The `dast-staging` job (also in `cd.yml`) pulls that image and runs it directly on the GitHub
+   Actions runner (`docker run -d -p 8080:8080 ...`), then points ZAP at `http://localhost:8080`.
 
 Same DAST coverage, zero extra infrastructure. If you later stand up a real staging environment,
-swap the "pull and run on the runner" steps in `dast-scan.yml`/`nightly-scan.yml` for a
+swap the "pull and run on the runner" steps in `cd.yml`/`nightly-scan.yml` for a
 `target: ${{ secrets.STAGING_URL }}` the way the original design doc describes.
 
 ---
@@ -130,7 +134,8 @@ swap the "pull and run on the runner" steps in `dast-scan.yml`/`nightly-scan.yml
 |---|---|---|
 | `deploy-staging`/`deploy-production` fails with a permissions error pushing to GHCR | Workflow permissions not set to read/write | Settings → Actions → General → Workflow permissions → "Read and write permissions" |
 | `approval-gate` job runs without pausing | No required reviewer configured on the `production` environment | Settings → Environments → `production` → add a required reviewer |
-| `dast-scan.yml` fails at "Run staging container" with an image-not-found error | `devsecops-pipeline.yml` hasn't successfully pushed a `:staging` tag yet (e.g. first run was only a PR, not a push to `main`) | Merge/push to `main` at least once first |
+| `cd.yml` doesn't run at all after a push | `cd.yml` only fires when `ci.yml` **concludes `success` on `main`** — a failed CI gate (or a PR-only run) never triggers CD | Fix the failing CI gate, or push to `main` (not just open a PR) |
+| `nightly-scan.yml`'s ZAP job logs "No staging image yet, skipping" | No `:staging` tag has been pushed to GHCR yet (CD hasn't run a successful `deploy-staging`) | Merge/push to `main` so CI→CD runs at least once first |
 | Semgrep step fails immediately with an auth error | `SEMGREP_APP_TOKEN` secret is set but invalid | Remove the secret (it's optional) or fix its value |
 | ZAP baseline scan reports a HIGH finding you believe is a false positive | — | Add a suppression line to `.github/zap/rules.tsv` (format: `<rule-id>\tIGNORE\t<rule-name>\t<reason>`) |
 | Local `docker build` fails with a snapshot/extraction error | Transient BuildKit cache issue (seen occasionally on Docker Desktop for Windows) | Re-run `docker build`, or `docker builder prune -f` first |

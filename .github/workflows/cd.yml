@@ -122,6 +122,7 @@ jobs:
           cmd_options: '-a'
           fail_action: warn
           allow_issue_writing: false
+          artifact_name: zap-baseline-scan-internal
 
       - name: Upload ZAP baseline report
         if: always()
@@ -161,6 +162,7 @@ jobs:
           format: openapi
           fail_action: warn
           allow_issue_writing: false
+          artifact_name: zap-api-scan-internal
 
       - name: Upload ZAP API report
         if: always()

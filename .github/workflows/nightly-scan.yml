@@ -102,6 +102,7 @@ jobs:
           target: http://localhost:8080
           fail_action: warn
           allow_issue_writing: false
+          artifact_name: zap-full-scan-internal
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

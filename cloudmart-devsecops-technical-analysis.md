@@ -81,36 +81,37 @@ The target state inverts this model: security checks are automated, embedded at 
 
 ```mermaid
 flowchart TD
-    Start[PR / Push to main] --> S1
+    Start[PR / Push to main] --> CI
 
-    S1[Stage 1 — Secrets Scan\nTool: Trivy secret mode\nGate: BLOCK on any confirmed secret]
-    S1 -->|PASS| S2
-
-    subgraph S2 [Stage 2 — parallel]
-        S2a[SAST — Semgrep\nGate: BLOCK on ERROR severity]
-        S2b[SCA — Trivy fs/vuln mode\nGate: BLOCK on CRITICAL CVE]
+    subgraph CI [ci.yml — parallel wave 1]
+        S0[Lint + Unit Tests\nRuff · Black · pytest\nGate: BLOCK on failure]
+        S1[Secrets Scan — Trivy secret\nGate: BLOCK on any secret]
+        S2a[SAST — Semgrep\nGate: BLOCK on ERROR]
+        S2b[SCA — Trivy fs/vuln\nGate: BLOCK on CRITICAL CVE]
     end
-    S2 -->|BOTH PASS| S3
+    CI -->|ALL PASS| S3
 
-    S3[Stage 3 — Docker Build]
+    S3[Docker Build\nsave image as artifact]
     S3 --> S4
 
-    subgraph S4 [Stage 4 — parallel]
-        S4a[Container Scan — Trivy image mode\nGate: BLOCK on CRITICAL CVE]
-        S4b[IaC Scan — Trivy config mode\nGate: WARN only, logged]
+    subgraph S4 [ci.yml — parallel wave 2]
+        S4a[Container Scan — Trivy image\nGate: BLOCK on CRITICAL CVE]
+        S4b[IaC Scan — Trivy config\nGate: WARN only, logged]
     end
-    S4 -->|Container scan passes| S5
+    S4 -->|CI success on main → workflow_run| S5
 
-    S5[Stage 5 — Deploy Staging\nGitHub Environment: staging\npush to main only]
-    S5 --> S6
+    S5[cd.yml · Deploy Staging\nEnvironment: staging\npush :staging to GHCR]
+    S5 --> SM1[Smoke Test Staging\nrun container, poll /healthz\nGate: BLOCK if not healthy]
+    SM1 --> S6
 
-    S6[Stage 6 — DAST Scan, separate workflow\nOWASP ZAP baseline passive scan\nAPI scan against OpenAPI spec\nGate: BLOCK on HIGH]
+    S6[cd.yml · DAST — OWASP ZAP\nbaseline passive scan + API scan\nGate: BLOCK on HIGH]
     S6 -->|PASS| S7
 
-    S7[Stage 7 — Manual Approval\nRequired reviewers: Security Lead / Release Manager]
+    S7[cd.yml · Manual Approval\nEnvironment: production\nRequired reviewer: Security Lead / Release Manager]
     S7 -->|APPROVED| S8
 
-    S8[Stage 8 — Deploy Production\nAudit log: commit SHA, actor, timestamp]
+    S8[cd.yml · Deploy Production\npush :latest + audit log: SHA, actor, timestamp]
+    S8 --> SM2[Smoke Test Production\nrun container, poll /healthz]
 
     Nightly[Nightly 02:00 UTC, separate workflow] -.-> N1[Trivy full scan, all severities, no block]
     Nightly -.-> N2[SBOM generation — CycloneDX + SPDX]
@@ -126,11 +127,23 @@ The pipeline is split across three GitHub Actions workflow files by design, not 
 
 | Workflow File | Trigger | Purpose |
 |---|---|---|
-| `devsecops-pipeline.yml` | Every PR + push to main | Code-level gates, build, container scan, deploy to staging |
-| `dast-scan.yml` | After main pipeline completes | ZAP requires a live URL — cannot run during build |
+| `ci.yml` | Every PR + push to `main` | Lint + unit tests, code-level security gates (secrets, SAST, SCA), Docker build, container + IaC scan |
+| `cd.yml` | `workflow_run` after **CI succeeds on `main`** | Deploy to staging → smoke test → ZAP DAST → manual approval → deploy to production → smoke test |
 | `nightly-scan.yml` | Cron 02:00 UTC daily | Deep scans too slow for every commit; SBOM; compliance evidence |
 
-ZAP's separation is architecturally necessary. A DAST scanner operates against a running application. It cannot scan source code or a Docker image. Placing ZAP in the main pipeline before deployment would be technically impossible; placing it after every PR deploy would require a full staging environment per PR branch, which is outside CloudMart's constraints.
+**CI / CD separation.** Continuous Integration (prove the change is good) and Continuous Delivery
+(ship it) are separate concerns with different triggers and permissions. `ci.yml` runs on every PR
+and needs only read + `security-events` scope. `cd.yml` runs *only* after CI concludes `success` on
+`main` (`workflow_run`), needs `packages: write` to push to GHCR, and gates its jobs behind GitHub
+Environments. Splitting them keeps PR feedback fast and read-only, and confines deploy privileges to
+the CD workflow.
+
+**Why ZAP lives in CD, not CI.** A DAST scanner operates against a *running* application — it cannot
+scan source code or a Docker image. It therefore runs in `cd.yml`, against the staging container that
+`deploy-staging` just stood up, *after* the smoke test confirms the app is healthy. Placing ZAP in CI
+before deployment would be technically impossible; running it against a full staging environment per
+PR branch is outside CloudMart's constraints. The nightly workflow adds a slower, destructive
+**active** ZAP scan against the persistent `:staging` image.
 
 ---
 
@@ -282,40 +295,45 @@ ZAP was selected over commercial DAST tools (Burp Suite Enterprise, Invicti, Acu
 
 #### Scan Modes
 
-**Baseline Scan — Every Main Branch Push**
+> In the repo the ZAP actions are SHA-pinned and target the staging container running on the Actions
+> runner at `http://localhost:8080` (see [How to run](./HOW-TO-RUN.md#4-how-staging-actually-works-here)).
+> The `${{ env.STAGING_URL }}` targets below illustrate the design-doc's external-URL alternative.
+
+**Baseline Scan — `cd.yml`, after each successful staging deploy**
 
 ```yaml
-- uses: zaproxy/action-baseline@v0.12.0
+- uses: zaproxy/action-baseline@...   # SHA-pinned v0.15.0
   with:
-    target: ${{ env.STAGING_URL }}
+    target: http://localhost:8080      # or ${{ env.STAGING_URL }} for external staging
     rules_file_name: .github/zap/rules.tsv
     cmd_options: '-a'
-    fail_action: warn
+    fail_action: warn                  # HIGH gate enforced by a separate report-parsing step
 ```
 
-Passive scanning — observes HTTP traffic without injecting attack payloads. Safe to run on every deployment to staging. Completes in 2–5 minutes. Detects: missing security headers (CSP, HSTS, X-Frame-Options), cookie flag misconfigurations (missing HttpOnly/Secure/SameSite), information disclosure in responses, CORS misconfiguration, exposed endpoints.
+Passive scanning — observes HTTP traffic without injecting attack payloads. Safe to run on every deployment to staging. Completes in 2–5 minutes. Detects: missing security headers (CSP, HSTS, X-Frame-Options), cookie flag misconfigurations (missing HttpOnly/Secure/SameSite), information disclosure in responses, CORS misconfiguration, exposed endpoints. The HIGH-finding **BLOCK** gate is enforced by the report-parsing shell step shown in §5, not by `fail_action`.
 
-**Full Active Scan — Nightly**
-
-```yaml
-- uses: zaproxy/action-full-scan@v0.10.0
-  with:
-    target: ${{ secrets.STAGING_URL }}
-    fail_action: warn
-```
-
-Injects crafted attack payloads into live HTTP requests. Takes 15–30 minutes. Detects: SQL injection, XSS, path traversal, authentication bypass, IDOR, server-side request forgery. **Must only run against an isolated staging environment** — active scanning can modify or delete application data.
-
-**API Scan — Nightly**
+**API Scan — `cd.yml`, same job as the baseline**
 
 ```yaml
-- uses: zaproxy/action-api-scan@v0.7.0
+- uses: zaproxy/action-api-scan@...   # SHA-pinned v0.10.0
   with:
-    target: ${{ env.STAGING_URL }}/api/openapi.json
+    target: http://localhost:8080/openapi.json
     format: openapi
+    fail_action: warn
 ```
 
 Consumes CloudMart's OpenAPI specification to systematically test all defined REST API endpoints. Ensures complete API surface coverage rather than relying on spider-based discovery through HTML traversal.
+
+**Full Active Scan — `nightly-scan.yml`**
+
+```yaml
+- uses: zaproxy/action-full-scan@...   # SHA-pinned v0.13.0
+  with:
+    target: http://localhost:8080      # pulls and runs the :staging image from GHCR
+    fail_action: warn
+```
+
+Injects crafted attack payloads into live HTTP requests. Takes 15–30 minutes. Detects: SQL injection, XSS, path traversal, authentication bypass, IDOR, server-side request forgery. **Must only run against an isolated staging environment** — active scanning can modify or delete application data. Runs nightly, never blocks (report only).
 
 #### What ZAP Detects That Other Tools Cannot
 
@@ -333,52 +351,81 @@ Consumes CloudMart's OpenAPI specification to systematically test all defined RE
 ## 5. Pipeline File Reference
 
 Three GitHub Actions workflow files implement the pipeline. All files belong in `.github/workflows/`.
+For a job-by-job narrative trace of a change moving through all three, see
+[`PIPELINE-WALKTHROUGH.md`](./PIPELINE-WALKTHROUGH.md).
 
-### File 1 — `devsecops-pipeline.yml`
+> **Implementation note — Trivy CLI, not the action.** The YAML snippets in §4 use
+> `aquasecurity/trivy-action` to illustrate each scan mode. The repository implements the same scans
+> by **installing the Trivy CLI via apt** (with a cached vulnerability DB) and invoking `trivy fs` /
+> `trivy image` / `trivy config` directly — this keeps the DB cache and exit-code gating explicit.
+> SARIF is uploaded separately via `github/codeql-action/upload-sarif`. The gate semantics
+> (block-on-CRITICAL, warn-on-IaC, etc.) are identical.
 
-**Trigger:** Every pull request and push to `main` or `develop`
+### File 1 — `ci.yml` (Continuous Integration)
+
+**Trigger:** Every pull request to `main` and every push to `main`.
+**Scope/permissions:** `contents: read`, `security-events: write`, `actions: read` — no deploy rights.
 
 **Job execution order:**
 
 ```
-secrets-scan
-    ├── sast-scan (needs: secrets-scan)
-    └── sca-scan  (needs: secrets-scan)
-         └── build (needs: sast-scan + sca-scan)
-              ├── container-scan (needs: build)
+lint-test    ┐
+secrets-scan ┤  (parallel wave 1)
+sast-scan    ┤
+sca-scan     ┘
+     └── build (needs: lint-test + secrets-scan + sast-scan + sca-scan)
+              ├── container-scan (needs: build)   (parallel wave 2)
               └── iac-scan       (needs: build)
-                   └── deploy-staging (needs: container-scan + iac-scan)
-                        └── approval-gate (needs: deploy-staging)
-                             └── deploy-production (needs: approval-gate)
 ```
 
-Key implementation notes:
+- **`lint-test`** — Ruff (lint), Black (format check), pytest with coverage. Fails the build on any
+  lint/format/test error. This is the "CI" in the traditional sense, run alongside the security gates.
+- The three security jobs (`secrets-scan`, `sast-scan`, `sca-scan`) run in parallel with `lint-test`.
+- `build` runs only after all four wave-1 jobs pass, produces the Docker image, and uploads it as the
+  **`cloudmart-app-image`** artifact (a `docker save` tarball). This artifact is the handoff to CD.
+- `container-scan` and `iac-scan` download and scan that image / the IaC files.
+- All scan results are uploaded as SARIF to the GitHub Security tab via
+  `github/codeql-action/upload-sarif`, with `if: always()` so artefacts survive a failing gate.
 
-- `needs:` chains enforce sequential gate logic — a failed job stops all downstream jobs
-- `if: github.ref == 'refs/heads/main' && github.event_name == 'push'` restricts staging deploy to main branch pushes only, not PRs
-- `environment: production` on the approval and deploy jobs enforces the GitHub Environment required-reviewer rule — a named Security Lead or Release Manager must approve before the job runs
-- All scan results uploaded as SARIF artefacts and to the GitHub Security tab via `github/codeql-action/upload-sarif`
-- `if: always()` on upload steps ensures artefacts are preserved even when scans find issues and fail the job
+### File 2 — `cd.yml` (Continuous Delivery)
 
-### File 2 — `dast-scan.yml`
+**Trigger:** `workflow_run` on workflow **"CI"**, `types: [completed]`, `branches: [main]`. Every job
+is guarded by `if: github.event.workflow_run.conclusion == 'success'`, so CD runs only when CI passed
+on `main`.
+**Scope/permissions:** adds `packages: write` to push images to GHCR.
 
-**Trigger:** `workflow_run` on completion of `devsecops-pipeline.yml` on `main`; also `workflow_dispatch` for manual on-demand scans
+**Job execution order (strictly sequential):**
 
-**Jobs:**
+```
+deploy-staging
+    └── smoke-staging      (needs: deploy-staging)
+         └── dast-staging  (needs: smoke-staging)   ← OWASP ZAP baseline + API scan
+              └── approval-gate      (needs: dast-staging)      ← environment: production
+                   └── deploy-production (needs: deploy-staging + approval-gate)
+                        └── smoke-production (needs: deploy-production)
+```
 
-1. `zap-baseline-scan` — passive scan against staging URL
-2. `zap-api-scan` — OpenAPI spec scan (needs: zap-baseline-scan)
+- **`deploy-staging`** downloads the image artifact **from the triggering CI run**
+  (`run-id: github.event.workflow_run.id`), loads it, and pushes `:staging-<sha>` + `:staging` to GHCR.
+- **`smoke-staging`** runs the pushed image and polls `/healthz` — blocks if the app is unhealthy.
+- **`dast-staging`** runs the staging container and runs the ZAP baseline scan, then a HIGH-finding
+  gate, then the API scan. It replaces the former standalone `dast-scan.yml`.
+- **`approval-gate`** is a no-op job whose `environment: production` protection rule pauses the
+  pipeline for a required reviewer (Security Lead / Release Manager).
+- **`deploy-production`** loads the *same* artifact (no rebuild), pushes `:prod-<sha>` + `:latest`,
+  and writes the audit line (SHA, actor, timestamp) to the job summary.
+- **`smoke-production`** repeats the health check against the promoted image.
 
-Gate evaluation is implemented as a shell step that parses the JSON report, counts findings by risk code, and exits non-zero if HIGH findings exist:
+The DAST HIGH-finding gate is a shell step that parses the JSON report, counts alerts by risk code,
+and exits non-zero if any HIGH exists:
 
 ```bash
-HIGH=$(cat report_json.json | python3 -c "
-import json,sys
-data=json.load(sys.stdin)
+HIGH=$(python3 -c "
+import json
+data=json.load(open('report_json.json'))
 alerts=[a for s in data.get('site',[]) for a in s.get('alerts',[])]
 print(sum(1 for a in alerts if a.get('riskcode')=='3'))
 ")
-
 if [ "$HIGH" -gt "0" ]; then
   echo "GATE: BLOCKED — $HIGH HIGH finding(s)"
   exit 1
@@ -514,19 +561,21 @@ The following table maps every security control required by the capstone rubric 
 
 | Required Control | Tool | Pipeline Stage | Workflow File | Gate |
 |---|---|---|---|---|
-| Secrets scanning | Trivy (secret mode) | Stage 1 — pre-build | `devsecops-pipeline.yml` | BLOCK on any finding |
-| SAST | Semgrep | Stage 2 — build | `devsecops-pipeline.yml` | BLOCK on ERROR |
-| SCA / Dependency scan | Trivy (vuln/fs) | Stage 2 — build | `devsecops-pipeline.yml` | BLOCK on CRITICAL CVE |
-| Container scanning | Trivy (image) | Stage 4 — post-build | `devsecops-pipeline.yml` | BLOCK on CRITICAL CVE |
-| IaC scanning | Trivy (config) | Stage 4 — post-build | `devsecops-pipeline.yml` | WARN only |
-| DAST | OWASP ZAP (baseline) | Post-deploy staging | `dast-scan.yml` | BLOCK on HIGH |
-| DAST — API surface | OWASP ZAP (api-scan) | Post-deploy staging | `dast-scan.yml` | WARN |
+| Lint + unit tests | Ruff / Black / pytest | CI — pre-build | `ci.yml` | BLOCK on failure |
+| Secrets scanning | Trivy (secret mode) | CI — pre-build | `ci.yml` | BLOCK on any finding |
+| SAST | Semgrep | CI — parallel wave 1 | `ci.yml` | BLOCK on ERROR |
+| SCA / Dependency scan | Trivy (vuln/fs) | CI — parallel wave 1 | `ci.yml` | BLOCK on CRITICAL CVE |
+| Container scanning | Trivy (image) | CI — post-build | `ci.yml` | BLOCK on CRITICAL CVE |
+| IaC scanning | Trivy (config) | CI — post-build | `ci.yml` | WARN only |
+| Smoke test | curl `/healthz` | CD — staging & production | `cd.yml` | BLOCK if unhealthy |
+| DAST | OWASP ZAP (baseline) | CD — post-deploy staging | `cd.yml` | BLOCK on HIGH |
+| DAST — API surface | OWASP ZAP (api-scan) | CD — post-deploy staging | `cd.yml` | WARN |
 | DAST — full active | OWASP ZAP (full-scan) | Nightly | `nightly-scan.yml` | Report only |
 | Logging and alerting | All tools — SARIF | Every run | All workflows | Persistent audit trail |
 | Audit evidence | Artefact upload | Every run | All workflows | 90–365 day retention |
 | SBOM generation | Trivy (nightly) | Nightly | `nightly-scan.yml` | Compliance evidence |
 | License compliance | Trivy (license mode) | Nightly | `nightly-scan.yml` | Report only |
-| Manual approval gate | GitHub Environments | Pre-production | `devsecops-pipeline.yml` | Required reviewer |
+| Manual approval gate | GitHub Environments | CD — pre-production | `cd.yml` | Required reviewer |
 | Policy-as-code | exit-code in YAML | Every run | All workflows | Automated enforcement |
 
 ---
@@ -602,8 +651,8 @@ Given CloudMart's constraint that delivery cannot stop, the pipeline is implemen
 
 Deploy in warn-only mode first. All scans run; no gates block yet. Purpose: establish baseline findings count, identify false positives, tune thresholds before enforcement.
 
-- Deploy `devsecops-pipeline.yml` with all `exit-code: 0` (no blocks)
-- Deploy `dast-scan.yml` with `fail_action: warn`
+- Deploy `ci.yml` with all Trivy gate steps at `exit-code: 0` (no blocks)
+- Deploy `cd.yml` with ZAP `fail_action: warn`
 - Deploy `nightly-scan.yml`
 - Review findings from first 5 pipeline runs with security team
 
@@ -640,8 +689,13 @@ The following secrets must be configured in the GitHub repository settings befor
 
 | Secret Name | Purpose | Where Used |
 |---|---|---|
-| `SEMGREP_APP_TOKEN` | Authenticates Semgrep scan to Semgrep Cloud (optional for OSS) | `devsecops-pipeline.yml`, `nightly-scan.yml` |
-| `STAGING_URL` | URL of the staging environment for ZAP to scan | `dast-scan.yml`, `nightly-scan.yml` |
+| `SEMGREP_APP_TOKEN` | Authenticates Semgrep scan to Semgrep Cloud (optional for OSS) | `ci.yml`, `nightly-scan.yml` |
+| `GITHUB_TOKEN` (built-in) | Pushes images to GHCR and downloads artifacts across workflows | `cd.yml`, `nightly-scan.yml` |
+
+> **No `STAGING_URL` secret is required.** The former design assumed an external staging URL. The
+> implementation instead pushes the image to GHCR and runs it directly on the Actions runner, pointing
+> ZAP at `http://localhost:8080`. To use a real staging environment later, swap the "pull and run on
+> the runner" steps for a `target: ${{ secrets.STAGING_URL }}`.
 
 GitHub Environment `production` must be configured with at least one required reviewer (Security Lead or Release Manager) under **Settings → Environments → production → Required reviewers**.
 
@@ -653,15 +707,20 @@ GitHub Environment `production` must be configured with at least one required re
 .
 ├── .github/
 │   ├── workflows/
-│   │   ├── devsecops-pipeline.yml    # Main pipeline
-│   │   ├── dast-scan.yml             # ZAP DAST scans
-│   │   └── nightly-scan.yml          # Deep nightly scans
+│   │   ├── ci.yml                    # CI: lint+test, secrets, SAST, SCA, build, container/IaC scan
+│   │   ├── cd.yml                    # CD: deploy staging → smoke → ZAP DAST → approval → production
+│   │   └── nightly-scan.yml          # Deep nightly scans, SBOM, licence, compliance
 │   └── zap/
 │       └── rules.tsv                 # ZAP false-positive suppression rules
-├── Dockerfile                        # Scanned by Trivy IaC
-├── k8s/                               # Kubernetes manifests — scanned by Trivy IaC
+├── src/                              # Python Flask app (built, scanned, deployed)
+│   ├── app/__init__.py               # Flask app factory
+│   ├── app/templates/                # index.html, about.html
+│   ├── tests/test_app.py             # pytest unit tests
+│   ├── wsgi.py · requirements.txt · openapi.json
+│   └── Dockerfile                    # python:3.13-slim, gunicorn :8080 — scanned by Trivy IaC
+├── k8s/                              # Kubernetes manifests — scanned by Trivy IaC
 │   └── deployment.yaml
-└── terraform/                         # Terraform configs — scanned by Trivy IaC
+└── terraform/                        # Terraform configs — scanned by Trivy IaC
     └── main.tf
 ```
 

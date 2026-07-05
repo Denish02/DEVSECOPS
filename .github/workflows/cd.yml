@@ -53,6 +53,7 @@ jobs:
   smoke-staging:
     name: Smoke Test Staging
     needs: deploy-staging
+    if: needs.deploy-staging.result == 'success'
     runs-on: ubuntu-latest
     environment: staging
     steps:
@@ -86,6 +87,7 @@ jobs:
   dast-staging:
     name: DAST (OWASP ZAP)
     needs: smoke-staging
+    if: needs.smoke-staging.result == 'success'
     runs-on: ubuntu-latest
     environment: staging
     steps:
@@ -173,6 +175,7 @@ jobs:
   approval-gate:
     name: Manual Approval
     needs: dast-staging
+    if: needs.dast-staging.result == 'success'
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -181,6 +184,7 @@ jobs:
   deploy-production:
     name: Deploy to Production (GHCR)
     needs: [deploy-staging, approval-gate]
+    if: needs.deploy-staging.result == 'success' && needs.approval-gate.result == 'success'
     runs-on: ubuntu-latest
     environment: production
     outputs:
@@ -223,6 +227,7 @@ jobs:
   smoke-production:
     name: Smoke Test Production
     needs: deploy-production
+    if: needs.deploy-production.result == 'success'
     runs-on: ubuntu-latest
     environment: production
     steps:

@@ -13,7 +13,7 @@ The pipeline is split across three workflow files:
 |---|---|---|
 | [`ci.yml`](./.github/workflows/ci.yml) | Every PR to `main` and every push to `main` | Code-level gates + build the image |
 | [`cd.yml`](./.github/workflows/cd.yml) | Automatically, **only after CI succeeds on `main`** | Deploy → smoke → DAST → approval → production |
-| [`nightly-scan.yml`](./.github/workflows/nightly-scan.yml) | Cron 02:00 UTC (and manual) | Deep scans, SBOM, licence, compliance evidence |
+| [`nightly-scan.yml`](./.github/workflows/nightly-scan.yml) | Cron 02:00 Malaysia Time / 18:00 UTC (and manual) | Deep scans, SBOM, licence, compliance evidence |
 
 > **The app under test:** a Python **Flask** app (`src/`) served by **gunicorn on port 8080**,
 > packaged as a Docker image. Health endpoint: `GET /healthz`. Home: `GET /`. API spec:
@@ -56,7 +56,7 @@ flowchart TD
         D1 --> SM1 --> Z --> AP --> D2 --> SM2
     end
 
-    night([Cron 02:00 UTC]) -.-> nightly[nightly-scan.yml<br/>full Trivy · full ZAP · full Semgrep · SBOM · compliance]
+    night([Cron 02:00 MYT / 18:00 UTC]) -.-> nightly[nightly-scan.yml<br/>full Trivy · full ZAP · full Semgrep · SBOM · compliance]
 ```
 
 Legend for the gate icons used below: 🚫 = **blocks** (job fails, nothing downstream runs) ·
@@ -245,7 +245,7 @@ passing production smoke test.
 
 # Part 3 — Nightly Deep Scan (`nightly-scan.yml`)
 
-**Trigger:** `cron: '0 2 * * *'` (02:00 UTC) + manual `workflow_dispatch`.
+**Trigger:** `cron: '0 18 * * *'` (18:00 UTC = 02:00 Malaysia Time) + manual `workflow_dispatch`.
 **Goal:** run the slow, thorough scans that are too expensive for every commit, and produce
 long-lived compliance evidence. **Nothing here blocks** — it feeds the backlog.
 

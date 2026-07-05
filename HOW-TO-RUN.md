@@ -91,7 +91,7 @@ No `STAGING_URL` secret is needed — see [§4](#4-how-staging-actually-works-he
 |---|---|---|
 | `ci.yml` | Any PR to `main`, or a push to `main` | Not exposed as `workflow_dispatch` — push/PR only |
 | `cd.yml` | Automatically after `ci.yml` **succeeds on `main`** (`workflow_run`) | — (driven by CI completion) |
-| `nightly-scan.yml` | Cron, 02:00 UTC daily | Actions tab → "Run workflow" |
+| `nightly-scan.yml` | Cron, 02:00 Malaysia Time / 18:00 UTC daily | Actions tab → "Run workflow" |
 
 For a job-by-job trace of what each step does and what blocks it, see
 [`PIPELINE-WALKTHROUGH.md`](./PIPELINE-WALKTHROUGH.md).

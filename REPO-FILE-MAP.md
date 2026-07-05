@@ -46,7 +46,7 @@ Audit date: 2026-07-05 · Branch: `feature/seperated-the-cicd-flow`
 |---|---|
 | `workflows/ci.yml` | Runs on every PR/push to `main`. Seven jobs: `lint-test` (Ruff, Black, pytest), `secrets-scan` (Trivy, blocks on any secret), `sast-scan` (Semgrep, blocks on ERROR), `sca-scan` (Trivy vuln, blocks on CRITICAL), `build` (docker build, uploads image tarball artifact), `container-scan` (Trivy image, blocks on CRITICAL), `iac-scan` (Trivy config, warn-only — now scans just the Dockerfile). All scanners upload SARIF to the Security tab. |
 | `workflows/cd.yml` | Triggered by `workflow_run` when CI succeeds on `main`. Chain: `deploy-staging` (push `:staging` tags to GHCR) → `smoke-staging` (`/healthz`) → `dast-staging` (ZAP baseline + API scan; blocks on HIGH) → `approval-gate` (`production` environment reviewer) → `deploy-production` (push `:prod-SHA` / `:latest`, audit log) → `smoke-production`. |
-| `workflows/nightly-scan.yml` | Cron 02:00 UTC + manual. Report-only: full Trivy scan, SBOMs (CycloneDX + SPDX), license scan, full Semgrep, ZAP full active scan against the `:staging` image, then a compliance-summary artifact (365-day retention). Never blocks. |
+| `workflows/nightly-scan.yml` | Cron 02:00 Malaysia Time / 18:00 UTC + manual. Report-only: full Trivy scan, SBOMs (CycloneDX + SPDX), license scan, full Semgrep, ZAP full active scan against the `:staging` image, then a compliance-summary artifact (365-day retention). Never blocks. |
 | `zap/rules.tsv` | Suppresses two accepted ZAP informational findings (Cache-Control, timestamp disclosure) so DAST gates aren't polluted by known noise. |
 
 ### Application (`src/`)

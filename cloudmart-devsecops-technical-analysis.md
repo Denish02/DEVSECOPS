@@ -113,7 +113,7 @@ flowchart TD
     S8[cd.yml · Deploy Production\npush :latest + audit log: SHA, actor, timestamp]
     S8 --> SM2[Smoke Test Production\nrun container, poll /healthz]
 
-    Nightly[Nightly 02:00 UTC, separate workflow] -.-> N1[Trivy full scan, all severities, no block]
+    Nightly[Nightly 02:00 MYT / 18:00 UTC, separate workflow] -.-> N1[Trivy full scan, all severities, no block]
     Nightly -.-> N2[SBOM generation — CycloneDX + SPDX]
     Nightly -.-> N3[License compliance scan]
     Nightly -.-> N4[OWASP ZAP active scan, attack payloads]
@@ -129,7 +129,7 @@ The pipeline is split across three GitHub Actions workflow files by design, not 
 |---|---|---|
 | `ci.yml` | Every PR + push to `main` | Lint + unit tests, code-level security gates (secrets, SAST, SCA), Docker build, container + IaC scan |
 | `cd.yml` | `workflow_run` after **CI succeeds on `main`** | Deploy to staging → smoke test → ZAP DAST → manual approval → deploy to production → smoke test |
-| `nightly-scan.yml` | Cron 02:00 UTC daily | Deep scans too slow for every commit; SBOM; compliance evidence |
+| `nightly-scan.yml` | Cron 02:00 Malaysia Time / 18:00 UTC daily | Deep scans too slow for every commit; SBOM; compliance evidence |
 
 **CI / CD separation.** Continuous Integration (prove the change is good) and Continuous Delivery
 (ship it) are separate concerns with different triggers and permissions. `ci.yml` runs on every PR
@@ -434,7 +434,7 @@ fi
 
 ### File 3 — `nightly-scan.yml`
 
-**Trigger:** `cron: '0 2 * * *'` (02:00 UTC daily) + `workflow_dispatch`
+**Trigger:** `cron: '0 18 * * *'` (18:00 UTC = 02:00 Malaysia Time daily) + `workflow_dispatch`
 
 **Jobs:**
 

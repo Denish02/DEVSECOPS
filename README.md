@@ -70,7 +70,7 @@ flowchart TD
 
     H --> I[Stage 8: Deploy to Production\nfull audit log recorded]
 
-    J[Nightly, 2am UTC] -.-> K[Deep scans: full Trivy + full ZAP attack scan\n+ SBOM + license check\nnever blocks — feeds the backlog]
+    J[Nightly, 2am MYT / 18:00 UTC] -.-> K[Deep scans: full Trivy + full ZAP attack scan\n+ SBOM + license check\nnever blocks — feeds the backlog]
 ```
 
 ### The short version of the gate rules
@@ -95,7 +95,7 @@ the [technical analysis](./cloudmart-devsecops-technical-analysis.md#6-gate-deci
 │   ├── workflows/
 │   │   ├── ci.yml                   # every PR / push to main — lint+test, secrets, SAST, SCA, build, container/IaC scan
 │   │   ├── cd.yml                   # auto-runs after CI succeeds on main — deploy staging → smoke → ZAP DAST → approval → production
-│   │   └── nightly-scan.yml         # runs at 2am UTC daily — deep scans, SBOM, license check, compliance report
+│   │   └── nightly-scan.yml         # runs at 2am Malaysia Time (18:00 UTC) daily — deep scans, SBOM, license check, compliance report
 │   └── zap/
 │       └── rules.tsv                # suppresses known ZAP false positives
 └── src/                             # minimal Python Flask sample app the pipeline builds, scans, and deploys
@@ -150,7 +150,7 @@ infra" constraint from the design doc even more literally than originally planne
 - **`cd.yml`** fires automatically once `ci.yml` **succeeds on `main`** (via `workflow_run`). It
   goes staging deploy → smoke test → ZAP DAST → your manual approval click → production deploy →
   production smoke test.
-- **`nightly-scan.yml`** runs on its own at 02:00 UTC, or trigger it manually from the Actions tab
+- **`nightly-scan.yml`** runs on its own at 02:00 Malaysia Time (18:00 UTC), or trigger it manually from the Actions tab
   (`workflow_dispatch`) to see the SBOM/license/full-scan artefacts without waiting.
 
 Every run's findings land in the **Security tab** (SARIF) and as downloadable **Artifacts** on the

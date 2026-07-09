@@ -2,7 +2,8 @@ name: Nightly Deep Scan
 
 on:
   schedule:
-    - cron: '0 2 * * *'
+    # 2:00 AM Malaysia Time (UTC+8) 
+    - cron: '0 18 * * *'
   workflow_dispatch:
 
 permissions:
@@ -41,13 +42,14 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: trivy-nightly-reports
+          name: trivy-nightly-reports-${{ github.run_attempt }}
           path: |
             trivy-full-report.json
             sbom-cyclonedx.json
             sbom-spdx.json
             license-report.txt
           retention-days: 90
+          overwrite: true
 
   semgrep-full-scan:
     name: Semgrep Full Codebase Scan
@@ -66,9 +68,10 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: semgrep-nightly-report
+          name: semgrep-nightly-report-${{ github.run_attempt }}
           path: semgrep-full-report.json
           retention-days: 90
+          overwrite: true
 
   zap-active-scan:
     name: ZAP Full Active Scan
@@ -99,15 +102,17 @@ jobs:
           target: http://localhost:8080
           fail_action: warn
           allow_issue_writing: false
+          artifact_name: zap-full-scan-internal
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: zap-active-report
+          name: zap-active-report-${{ github.run_attempt }}
           path: |
             report_html.html
             report_json.json
           retention-days: 90
+          overwrite: true
 
       - name: Stop staging container
         if: always()
@@ -120,6 +125,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
+          pattern: '*-${{ github.run_attempt }}'
           path: artifacts
 
       - name: Build compliance summary
@@ -135,6 +141,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: compliance-summary
+          name: compliance-summary-${{ github.run_attempt }}
           path: compliance-summary.txt
           retention-days: 365
+          overwrite: true

@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   push:
-    branches: [main]
+    branches: [main, develop]
 
 permissions:
   contents: read
@@ -47,11 +47,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Get cache date
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
       - name: Cache Trivy DB
         uses: actions/cache@v4
         with:
           path: ~/.cache/trivy
-          key: trivy-db-${{ github.run_id }}
+          key: trivy-db-${{ steps.date.outputs.date }}
           restore-keys: |
             trivy-db-
 
@@ -63,7 +67,9 @@ jobs:
           sudo apt-get install -y trivy
 
       - name: Trivy secrets scan
-        run: trivy fs . --scanners secret --format sarif --output trivy-secrets.sarif --exit-code 0
+        run: |
+          trivy fs . --scanners secret --format json --output trivy-secrets.json --exit-code 0
+          trivy convert --format sarif --output trivy-secrets.sarif trivy-secrets.json
 
       - name: Upload SARIF
         if: always()
@@ -73,7 +79,14 @@ jobs:
           category: trivy-secrets
 
       - name: Gate - block on any confirmed secret
-        run: trivy fs . --scanners secret --exit-code 1
+        run: |
+          COUNT=$(python3 -c "
+          import json
+          d = json.load(open('trivy-secrets.json'))
+          print(sum(len(r.get('Secrets', [])) for r in d.get('Results', [])))
+          ")
+          echo "Secrets found: $COUNT"
+          [ "$COUNT" -eq 0 ] || { echo "GATE: BLOCKED - $COUNT secret(s) found"; exit 1; }
 
   sast-scan:
     name: SAST (Semgrep)
@@ -87,8 +100,8 @@ jobs:
         run: |
           semgrep scan \
             --config=auto \
-            --sarif \
-            --output=semgrep-results.sarif \
+            --json-output=semgrep-results.json \
+            --sarif-output=semgrep-results.sarif \
             --severity=ERROR \
             --severity=WARNING
         env:
@@ -103,9 +116,13 @@ jobs:
 
       - name: Gate - block on ERROR severity
         run: |
-          semgrep scan --config=auto --severity=ERROR --error
-        env:
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+          ERRORS=$(python3 -c "
+          import json
+          d = json.load(open('semgrep-results.json'))
+          print(sum(1 for r in d.get('results', []) if r.get('extra', {}).get('severity') == 'ERROR'))
+          ")
+          echo "ERROR findings: $ERRORS"
+          [ "$ERRORS" -eq 0 ] || { echo "GATE: BLOCKED - $ERRORS ERROR-severity finding(s)"; exit 1; }
 
   sca-scan:
     name: SCA (Trivy)
@@ -113,11 +130,15 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
+      - name: Get cache date
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
       - name: Cache Trivy DB
         uses: actions/cache@v4
         with:
           path: ~/.cache/trivy
-          key: trivy-db-${{ github.run_id }}
+          key: trivy-db-${{ steps.date.outputs.date }}
           restore-keys: |
             trivy-db-
 
@@ -131,7 +152,8 @@ jobs:
       - name: Trivy dependency scan
         run: |
           trivy fs src --scanners vuln --severity CRITICAL,HIGH --ignore-unfixed \
-            --format sarif --output trivy-sca.sarif --exit-code 0
+            --format json --output trivy-sca.json --exit-code 0
+          trivy convert --format sarif --output trivy-sca.sarif trivy-sca.json
 
       - name: Upload SARIF
         if: always()
@@ -141,7 +163,14 @@ jobs:
           category: trivy-sca
 
       - name: Gate - block on CRITICAL CVE
-        run: trivy fs src --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1
+        run: |
+          CRIT=$(python3 -c "
+          import json
+          d = json.load(open('trivy-sca.json'))
+          print(sum(1 for r in d.get('Results', []) for v in r.get('Vulnerabilities', []) if v.get('Severity') == 'CRITICAL'))
+          ")
+          echo "CRITICAL vulnerabilities: $CRIT"
+          [ "$CRIT" -eq 0 ] || { echo "GATE: BLOCKED - $CRIT CRITICAL CVE(s)"; exit 1; }
 
   build:
     name: Docker Build
@@ -183,11 +212,15 @@ jobs:
       - name: Load image
         run: docker load -i cloudmart-app.tar
 
+      - name: Get cache date
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
       - name: Cache Trivy DB
         uses: actions/cache@v4
         with:
           path: ~/.cache/trivy
-          key: trivy-db-${{ github.run_id }}
+          key: trivy-db-${{ steps.date.outputs.date }}
           restore-keys: |
             trivy-db-
 
@@ -201,7 +234,8 @@ jobs:
       - name: Trivy image scan
         run: |
           trivy image cloudmart-app:${{ needs.build.outputs.image-tag }} --scanners vuln,secret \
-            --severity CRITICAL,HIGH --ignore-unfixed --format sarif --output trivy-image.sarif --exit-code 0
+            --severity CRITICAL,HIGH --ignore-unfixed --format json --output trivy-image.json --exit-code 0
+          trivy convert --format sarif --output trivy-image.sarif trivy-image.json
 
       - name: Upload SARIF
         if: always()
@@ -212,8 +246,13 @@ jobs:
 
       - name: Gate - block on CRITICAL CVE
         run: |
-          trivy image cloudmart-app:${{ needs.build.outputs.image-tag }} --scanners vuln \
-            --severity CRITICAL --ignore-unfixed --exit-code 1
+          CRIT=$(python3 -c "
+          import json
+          d = json.load(open('trivy-image.json'))
+          print(sum(1 for r in d.get('Results', []) for v in r.get('Vulnerabilities', []) if v.get('Severity') == 'CRITICAL'))
+          ")
+          echo "CRITICAL vulnerabilities: $CRIT"
+          [ "$CRIT" -eq 0 ] || { echo "GATE: BLOCKED - $CRIT CRITICAL CVE(s)"; exit 1; }
 
   iac-scan:
     name: IaC Scan (Trivy)
@@ -222,11 +261,15 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
+      - name: Get cache date
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
       - name: Cache Trivy DB
         uses: actions/cache@v4
         with:
           path: ~/.cache/trivy
-          key: trivy-db-${{ github.run_id }}
+          key: trivy-db-${{ steps.date.outputs.date }}
           restore-keys: |
             trivy-db-
 
